@@ -1,0 +1,320 @@
+---
+title: "Mitogenome assembly and primer design"
+output:
+  html_document: default
+geometry: margin=1cm
+fontsize: 11pt
+
+---
+
+# Required programs {.tabset}
+
+## Program list 
+
+Pre-assembly : 
+
+- [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) 
+- [Multiqc](https://github.com/MultiQC/MultiQC)
+- [Fastp](https://github.com/OpenGene/fastp)
+
+Assembly and annotation : 
+
+- [mtGrasp](https://github.com/bcgsc/mtGrasp)
+
+Primer Design : 
+
+- [Unikseq](https://github.com/bcgsc/unikseq)
+- [NCBI primer-BLAST](https://www.ncbi.nlm.nih.gov/tools/primer-blast/)
+- [MEGA11](https://www.megasoftware.net/)
+
+Alignment and phylogeny tree : 
+
+- [MAFFT](https://mafft.cbrc.jp/alignment/software/)
+- [RAxML-NG](https://github.com/amkozlov/raxml-ng)
+
+Sequencing depth : 
+
+- [BWA](https://github.com/lh3/bwa)
+- [Samtools](https://github.com/lh3/bwa)
+- [MetaBAT2](https://bitbucket.org/berkeleylab/metabat/src/master/) (for the script `jgi_summarize_bam_contig_depths`)
+
+Useful tool : 
+
+- [bbmap](https://jgi.doe.gov/data-and-tools/software-tools/bbtools/bb-tools-user-guide/bbmap-guide/)
+
+___
+
+## Installing programs 
+
+The commands used to install the different programs are described below but in order to ensure the programs are installed with the most up-to date methods we recommend validating the installation methods through the programs webpage. 
+
+[FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) 
+
+```{bash, eval = FALSE}
+sudo apt install fastqc 
+```
+
+[Multiqc](https://github.com/MultiQC/MultiQC)
+
+*Requires pip* (`sudo apt install python3-pip`)
+
+```{bash, eval = FALSE}
+pip install multiqc
+```
+
+You might have to add the directory where the scripts are installed to your path. In our case the scripts where installed in the directory `/home/username/.local/bin`. To add this directory to our path the following command was used by replacement `username` with our actual username : 
+
+```{bash, eval = FALSE}
+export PATH="/home/username/.local/bin:$PATH" 
+```
+
+[Fastp](https://github.com/OpenGene/fastp)
+
+```{bash, eval = FALSE}
+wget http://opengene.org/fastp/fastp
+chmod a+x ./fa
+```
+
+[mtGrasp](https://github.com/bcgsc/mtGrasp)
+
+The program was installed using docker but it can also be insalled throught conda. View github for all intallation options.  
+
+[Unikseq](https://github.com/bcgsc/unikseq)
+
+```{bash, eval = FALSE}
+git clone https://github.com/bcgsc/unikseq
+cd unikseq
+```
+
+[MAFFT](https://mafft.cbrc.jp/alignment/software/)
+
+
+```{bash, eval = FALSE}
+wget https://mafft.cbrc.jp/alignment/software/mafft_7.526-1_amd64.deb
+su -
+dpkg -i mafft_7.526-1_amd64.deb
+exit
+```
+
+[RAxML-NG](https://github.com/amkozlov/raxml-ng)
+
+```{bash, eval = FALSE}
+git clone --recursive https://github.com/amkozlov/raxml-ng
+cd raxml-ng
+mkdir build && cd build
+cmake ..
+make
+```
+
+[BWA](https://github.com/lh3/bwa)
+
+```{bash, eval = FALSE}
+git clone https://github.com/lh3/bwa.git
+cd bwa; make
+```
+
+[Samtools](https://github.com/lh3/bwa)
+
+```{bash, eval = FALSE}
+sudo apt install samtools
+```
+
+[MetaBAT2](https://bitbucket.org/berkeleylab/metabat/src/master/)
+
+```{bash, eval = FALSE}
+conda install bioconda::metabat2
+```
+
+___
+
+# Detailed workflow 
+
+## Sequence quality 
+
+1. **Run FastQC**
+
+```{bash, eval = FALSE}
+fastqc *.gz
+```
+
+For each file with the `.gz` extension FastQC will produce a file with the `.html` extension. 
+
+2. **Merge FastQC outputs**. To create a single report use MultiQc from the directory containing all the `.html` reports. MultiQC will scan the specified directory (. is the current directory) for recognized log files and produce a single report with the default name `multiqc_report.html`.
+
+```{bash, eval = FALSE}
+multiqc . 
+```
+
+## Sequence trimming and filtering 
+
+1. **Run fastp**. To execute fastp on paired-en data (gzip compressed) with a single command a *for loop* is used. For each file ending in `.fastq.gz` fastp will generate a trimmed and filtered FASTQ file with the extension `_fastp.fastq.gz`. 
+
+```{bash, eval = FALSE}
+for R1 in *_R1_001.fastq.gz ; do R2=$(echo $R1| sed 's/_R1_/_R2_/') ; ~/fastp -i $R1 -I $R2 -o ${R1%%.*}_fastp.fastq.gz -O ${R2%%.*}_fastp.fastq.gz ; done 
+```
+
+To simplify executing the rest of the pipeline I recommend moving into a new directory all the output from fastp. 
+
+## Mitogenome assembly
+
+Download from NCBI a reference mitogenome of your organism of interest. In this case the following mitogenome was downloaded : *Ursus Americanus* [NC_003426.1](https://www.ncbi.nlm.nih.gov/nuccore/NC_003426.1/). Move this reference mitogenome into the directory containing all the output from fastp. 
+
+The instructions listed below are specific to a docker installation of mtgrasp. 
+
+1. **List docker images**
+
+```{bash, eval = FALSE}
+sudo docker images 
+```
+
+2. **Run image using image ID**. Replace {IMAGE ID} with the actual image ID listed by the previous command. 
+
+```{bash, eval = FALSE}
+sudo docker run -volume/genomics/var/genomics -dt --rm {IMAGE ID}
+```
+
+3. **Validate the docker is running**. If docker is running it should be listed in the output. Take note of the `Docker name` listed in the output.
+
+```{bash, eval = FALSE}
+sudo docker ps 
+```
+
+4. **Copy files to docker**. Use `Docker name` to copy the entire directory containing the fastp output and reference mitogenome to docker container. Replace `/home/username/fastp` with the actual path where your files are located.
+
+```{bash, eval = FALSE}
+sudo docker cp /home/username/fastp {dockername}:/home/
+``` 
+
+5. **Attach docker to your terminal**
+
+```{bash, eval = FALSE}
+sudo docker exec -it {container ID} bash
+``` 
+
+6. **Run mtGrasp**. Notes : mtGrasp requires the full path the the input files 
+```{bash, eval = FALSE}
+for R1 in *R1*.fastp.fastq.gz; do mtgrasp.py -r1 /home/fastp/$R1 -r2 /home/fastp/"${R1/R1/R2}" -m 2 -r /home/fastp/ursus_americanus_mito.fasta -o ${R1%%.*}_output -an ; done 
+```
+
+7. **Summarize the results**. This commands requires as input a text file containing a list of all the output folders generated by mtGrasp. To generate this list move all the folder containing the string `_output` into a new directory and use command `ls > output.txt` to export in a text file all the listed files and folders from the directory.
+
+```{bash, eval = FALSE}
+mkdir output_dir
+mv *_output output_dir 
+ls > output.txt
+mtgrasp_summarize.py -i output.txt -p bear
+```
+
+Note the docker path to the directory container all output folders and summary. Then exit docker with command `exit`.   
+
+8. **Copy the results from the docker to your local computer**
+
+```{bash, eval = FALSE}
+sudo docker cp {dockername}:/home/fastp/output_dir /home/username/
+``` 
+
+9. **Change group and user ownership of copied file**. Because the files and folders where copied using sudo they belong to the root user and normal users do not have permission to read or open the files and folders. 
+
+```{bash, eval = FALSE}
+sudo chown -R username:username output_dir
+```
+
+10. **Locate final assembly**. The final assembly FASTA is located inside a folder inside another folder. The following command will look inside all directories in the current directory for all files ending with `.final-mtgrasp_v1.1.8-assembly.fa` and will then copy them to the directory `mtgrasp_out`. 
+
+```{bash, eval = FALSE}
+find ./ -name "*.final-mtgrasp_v1.1.8-assembly.fa" -exec cp -prv "{}" "/home/username/mtgrasp_out" ";"
+```
+
+**Notes on location of annotation results**. The directory with the annotation outputs is located in the same directory as the final assembly and is labelled `annotation_output`. If the assembly resulted in 2 contigs, the directory will contain a directory for each contig (labelled 0 and 1). 
+
+## Primer design
+
+**Files required by unikseq**. The programs requires 3 sets of FASTA files : 
+
+- Reference FASTA `-r` :  The users assembled mitogenome
+- Ingroup FASTA `-i` : Reference genome of *Ursus Americanus* (Black bear) downloaded from NCBI 
+- Outgroup FASTA `-o` : Reference genome from other species in the Ursidae Family downloaded from NCBI. The following mitogenomes were downloaded from NCBI : 
+
+    - *Ailuropoda melanoleuca* - Giant Panda - Ref. NC009492
+    - *Helarctos malayanus* - Sun bear - Ref. NC009968
+    - *Melursus ursinus* - Sloth bear - Ref. NC009970
+    - *Tremarctos ornatus* - Spectacle bear - Ref.  NC009969
+    - *Ursus americanus* - American black bear - Ref.  NC 003426
+    - *Ursus arctos* - Brown bear - Ref.  NC 003427
+    - *Ursus maritimus* - Polar bear - Ref. NC 003428
+    - *Ursus thibetanus* - Asiatic black bear - Ref. NC 009971
+
+1. **Generate single FASTA files**. For the reference FASTA concatenate all the assembled mitogenome (`assembled_mito.fasta`) and for the outgroup concatenate the downloaded mitogenome `outgroup.fasta`. If the downloaded mitogenomes were transferred from a windows computer use `dos2unix` before concatenation to ensure the file has no hidden character sometimes added by windows. 
+
+2. **Run Unikseq**. Default parameters were used as recommended. 
+
+```{bash, eval = FALSE}
+~/unikseq/unikseq.pl -k 25 -r assembled_mito.fasta -i ursus_americanus_mito.fasta -o outgroup.fasta -s 100 -p 25 -l 1 -u 90
+```
+
+Useful outputs files are (1) the file ending with `-unique.fa` and (2) the BED-like file (`.bed`). The BED-like file is used to sort unique sequence by length. As suggested longest output sequences should be assessed first and progressively shorter sequences assessed if suitable primers/probe candidates were not found. The longest contigs can then be extracted from the `-unique.fa` using start and end position to locate sequence. 
+
+3. **Primer design using Primer-BLAST**. The following settings and considerations for primers (Allison *et al.*, 2023) were used : 
+
+- length 18–23 nt, 
+- amplicon length 80–400 bp
+- Tm target 59 ± 5°C
+- maximum primer pair Tm mismatch 3°C
+- GC content target 50%
+
+4.**Verify specificity of primers**. All FASTA files were combined together into a single file. This file was loaded in MEGA11 and muscle align. 
+Each primer was then search on the alignment to verify specificity of the primer. 
+
+## Alignement and tree 
+
+1. **Align sequences**
+
+```{bash, eval = FALSE}
+mafft --auto assembled_mito.fasta > all_mitogenomes.aln
+```
+
+2. **Generate tree with bootstrapping values**
+
+```{bash, eval = FALSE}
+# Generate single tree 
+raxmlHPC -m GTRGAMMA -p 12 -n simpletree.nwk -s all_mitogenomes.aln 
+# Bootstrapping
+raxmlHPC -b 100 -# 999 -m GTRGAMMA -p 12 -n bootstrapping.nwk -s all_mitogenomes.aln 
+# Tree with bootstrap values 
+raxmlHPC -f b -m GTRGAMMA -p 23456 -n bootstrap.nwk -z RAxML_bootstrap.bootstrapping.nwk -s all_mitogenomes.aln -t RAxML_bestTree.simpletree.nwk
+```
+
+## Sequencing depth 
+
+1. **Modify the file names**. Modify the name of the FASTP file and assembled mitogenome FASTA file as following : 
+
+- Required format for fastp file : `samplename_R1.fastp.gz samplename_R1.fastp.gz`
+- Required format for mitogenome file : `samplename.assembly.fasta`
+
+Modifying the file name is this format allows us to use a *for loop* to execute the different commands. 
+
+```{bash, eval = FALSE}
+# Fastp file 
+for i in *.gz; do mv $i "$(echo $i | sed s/"_001.fastq.gz.fastp.fastq.gz"/".fastp.gz"/)"; done
+# Mitogenome 
+for i in *.fasta; do mv $i "$(echo $i | sed s/"_R1_001_"/./)"; done
+```
+
+2. **Generate depth file**
+
+```{bash, eval = FALSE}
+# Index assembly 
+for i in *.assembly.fasta ; do ~/bwa/bwa index $i ; done 
+# Map reads 
+for i in *.assembly.fasta ; do ~/bwa/bwa mem -t 3 -o ${i%%.*}.sam $i ${i%%.*}_R1.fastp.gz ${i%%.*}_R2.fastp.gz; done 
+# Convert sam file output by bwa mem into a bam file
+for i in *.sam ; do samtools view -bS $i > ${i%%.*}.bam ; done 
+# Sort bam file 
+for i in *.bam ; do samtools sort -o ${i%%.*}.sorted.bam $i ; done 
+# Generate count of map vs unmapped reads 
+for i in *.sorted.bam ; do samtools idxstats $i > ${i%%.*}_stats.tab ; done 
+# Generate depth file 
+conda activate # Is metabat2 is installed through conda
+for i in *.sorted.bam ; do jgi_summarize_bam_contig_depths --outputDepth ${i%%.*}_depth.txt --pairedContigs ${i%%.*}_paired.txt $i ; done 
+```
+
